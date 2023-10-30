@@ -5,6 +5,9 @@ import { hashPassword } from '~/utils/crypto'
 import { signToken } from '~/utils/jwt'
 import { TokenType } from '~/constants/enums'
 import { config } from 'dotenv'
+import RefreshToken from '~/models/schemas/RefreshToken.schema'
+import { ObjectId } from 'mongodb'
+import { USERS_MESSAGES } from '~/constants/messages'
 config()
 
 class UserService {
@@ -21,6 +24,10 @@ class UserService {
     })
   }
 
+  private signAccessAnhRefreshToken(user_id: string) {
+    return Promise.all([this.signAccessToken(user_id), this.signRefreshToken(user_id)])
+  }
+
   async register(payload: RegisterReqBody) {
     const result = await databaseService.users.insertOne(
       new User({
@@ -32,10 +39,14 @@ class UserService {
     //lay user_id từ account vừa tạo
     const user_id = result.insertedId.toString()
     //từ usser_id tạo ra 1 access token và 1 refresh token
-    const [access_token, refresh_token] = await Promise.all([
-      this.signAccessToken(user_id),
-      this.signRefreshToken(user_id)
-    ])
+    const [access_token, refresh_token] = await this.signAccessAnhRefreshToken(user_id)
+    //luu refresh vaoo database
+    databaseService.refreshTokens.insertOne(
+      new RefreshToken({
+        token: refresh_token,
+        user_id: new ObjectId(user_id)
+      })
+    )
     return { access_token, refresh_token }
   }
 
@@ -44,7 +55,26 @@ class UserService {
     const user = await databaseService.users.findOne({ email })
     return Boolean(user)
   }
-}
 
+  async login(user_id: string) {
+    const [access_token, refresh_token] = await this.signAccessAnhRefreshToken(user_id)
+    //luu refersh vao database
+    await databaseService.refreshTokens.insertOne(
+      new RefreshToken({
+        token: refresh_token,
+        user_id: new ObjectId(user_id)
+      })
+    )
+    return { access_token, refresh_token }
+  }
+
+  async logout(refresh_token: string) {
+    //dung refresh_token tim va xoa
+    await databaseService.refreshTokens.deleteOne({ token: refresh_token })
+    return {
+      message: USERS_MESSAGES.LOGOUT_SUCCESS
+    }
+  }
+}
 const userService = new UserService()
 export default userService
