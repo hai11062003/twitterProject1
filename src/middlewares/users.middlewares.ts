@@ -5,10 +5,11 @@
 //viết 1 middleware sử lý vadidator của req body
 import { Request, Response } from 'express'
 import { NextFunction } from 'express'
-import { checkSchema } from 'express-validator'
+import { ParamSchema, body, checkSchema } from 'express-validator'
 import { access } from 'fs'
 import { JsonWebTokenError } from 'jsonwebtoken'
 import { capitalize, values } from 'lodash'
+import { ObjectId } from 'mongodb'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Erorrs'
@@ -17,6 +18,69 @@ import userService from '~/services/users.services'
 import { hashPassword } from '~/utils/crypto'
 import { verifyToken } from '~/utils/jwt'
 import { validate } from '~/utils/validations'
+
+const passwordSchema: ParamSchema = {
+  notEmpty: {
+    errorMessage: USERS_MESSAGES.PASSWORD_IS_REQUIRED
+  },
+  isString: {
+    errorMessage: USERS_MESSAGES.PASSWORD_MUST_BE_A_STRING
+  },
+  isLength: {
+    options: {
+      min: 8,
+      max: 50
+    },
+    errorMessage: USERS_MESSAGES.PASSWORD_LENGTH_MUST_BE_FROM_8_TO_50
+  },
+  isStrongPassword: {
+    options: {
+      minLength: 8,
+      minLowercase: 1,
+      minUppercase: 1,
+      minNumbers: 1,
+      minSymbols: 1
+      // returnScore: false
+      // false : chỉ return true nếu password mạnh, false nếu k
+      // true : return về chất lượng password(trên thang điểm 10)
+    },
+    errorMessage: USERS_MESSAGES.PASSWORD_MUST_BE_STRONG
+  }
+}
+
+const confirmPasswordSchema: ParamSchema = {
+  notEmpty: {
+    errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_IS_REQUIRED
+  },
+  isString: {
+    errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_A_STRING
+  },
+  isLength: {
+    options: {
+      min: 8,
+      max: 50
+    },
+    errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_LENGTH_MUST_BE_FROM_8_TO_50
+  },
+  isStrongPassword: {
+    options: {
+      minLength: 8,
+      minLowercase: 1,
+      minUppercase: 1,
+      minNumbers: 1,
+      minSymbols: 1
+    },
+    errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_STRONG
+  },
+  custom: {
+    options: (value, { req }) => {
+      if (value !== req.body.password) {
+        throw new Error(USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_THE_SAME_AS_PASSWORD)
+      }
+      return true
+    }
+  }
+}
 
 //viet validator cua middleware xu ly req body
 //khi đặng nhập thì em sẽ đưa anh 1 req.body gồm email và password
@@ -125,76 +189,8 @@ export const registerValidator = validate(
           }
         }
       },
-      password: {
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.PASSWORD_IS_REQUIRED
-        },
-        isString: {
-          errorMessage: USERS_MESSAGES.PASSWORD_MUST_BE_A_STRING
-        },
-        isLength: {
-          options: {
-            min: 8,
-            max: 50
-          },
-          errorMessage: USERS_MESSAGES.PASSWORD_LENGTH_MUST_BE_FROM_8_TO_50
-        },
-        isStrongPassword: {
-          options: {
-            minLength: 8,
-            minLowercase: 1,
-            minUppercase: 1,
-            minNumbers: 1,
-            minSymbols: 1
-            // returnScore: false
-            // false : chỉ return true nếu password mạnh, false nếu k
-            // true : return về chất lượng password(trên thang điểm 10)
-          },
-          errorMessage: USERS_MESSAGES.PASSWORD_MUST_BE_STRONG
-        }
-      },
-      confirm_password: {
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_IS_REQUIRED
-        },
-        isString: {
-          errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_A_STRING
-        },
-        isLength: {
-          options: {
-            min: 8,
-            max: 50
-          },
-          errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_LENGTH_MUST_BE_FROM_8_TO_50
-        },
-        isStrongPassword: {
-          options: {
-            minLength: 8,
-            minLowercase: 1,
-            minUppercase: 1,
-            minNumbers: 1,
-            minSymbols: 1
-          },
-          errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_STRONG
-        },
-        custom: {
-          options: (value, { req }) => {
-            if (value !== req.body.password) {
-              throw new Error(USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_THE_SAME_AS_PASSWORD)
-            }
-            return true
-          }
-        }
-      },
-      date_of_birth: {
-        isISO8601: {
-          options: {
-            strict: true,
-            strictSeparator: true
-          },
-          errorMessage: USERS_MESSAGES.DATE_OF_BIRTH_BE_ISO8601
-        }
-      }
+      password: passwordSchema,
+      confirm_password: confirmPasswordSchema
     },
     ['body']
   )
@@ -323,6 +319,109 @@ export const emailVerifyValidator = validate(
           }
         }
       }
+    },
+    ['body']
+  )
+)
+
+export const forgotPasswordValidator = validate(
+  checkSchema({
+    email: {
+      notEmpty: {
+        errorMessage: USERS_MESSAGES.EMAIL_IS_REQUIRED
+      },
+      isEmail: {
+        errorMessage: USERS_MESSAGES.EMAIL_IS_INVALID
+      },
+      trim: true,
+      custom: {
+        options: async (value, { req }) => {
+          //tìm user có email này
+          const user = await databaseService.users.findOne({ email: value })
+          //nếu ko có thì sao mà gưi , trả ra res lỗi
+          if (user === null) {
+            throw new Error(USERS_MESSAGES.USER_NOT_FOUND)
+          }
+          // néu có usser thì lưu lại vào req
+          req.user = user
+          return true
+        }
+      }
+    }
+  })
+)
+
+export const verifyForgotPasswordTokenValidator = validate(
+  checkSchema(
+    {
+      forgot_password_token: {
+        trim: true,
+        custom: {
+          options: async (value, { req }) => {
+            //nếu k truyền lên forgot_password_token thì ta sẽ throw error
+            if (!value) {
+              throw new ErrorWithStatus({
+                message: USERS_MESSAGES.FORGOT_PASSWORD_TOKEN_IS_REQUIRED,
+                status: HTTP_STATUS.UNAUTHORIZED //401
+              })
+            }
+            //vào messages.ts thêm  FORGOT_PASSWORD_TOKEN_IS_REQUIRED: 'Forgot password token is required'
+            //nếu có thì decode nó để lấy đc thông tin của người dùng
+            try {
+              const decoded_forgot_password_token = await verifyToken({
+                token: value,
+                secretOrPublicKey: process.env.JWT_SECRET_FORGOT_PASSWORD_TOKEN as string
+              })
+              //lưu decoded_forgot_password_token vào req để khi nào muốn biết ai gữi req thì dùng
+              ;(req as Request).decoded_forgot_password_token = decoded_forgot_password_token
+              //vào type.d.ts thêm decoded_forgot_password_token?: TokenPayload cho Request
+              //dùng user_id trong decoded_forgot_password_token để tìm user trong database
+
+              const { user_id } = decoded_forgot_password_token
+              const user = await databaseService.users.findOne({
+                _id: new ObjectId(user_id)
+              })
+              //nếu k tìm đc user thì throw error
+              if (user === null) {
+                throw new ErrorWithStatus({
+                  message: USERS_MESSAGES.USER_NOT_FOUND,
+                  status: HTTP_STATUS.UNAUTHORIZED //401
+                })
+              }
+              //nếu forgot_password_token đã được sử dụng rồi thì throw error
+              //forgot_password_token truyền lên khác với forgot_password_token trong database
+              //nghĩa là người dùng đã sử dụng forgot_password_token này rồi
+              //nếu có thìxem thử user có forgot password _token giống thằng client truyền lên ko
+              if (user.forgot_password_token !== value) {
+                throw new ErrorWithStatus({
+                  message: USERS_MESSAGES.FORGOT_PASSWORD_TOKEN_IS_REQUIRED,
+                  status: HTTP_STATUS.UNAUTHORIZED //401
+                })
+              }
+              //trong messages.ts thêm   INVALID_FORGOT_PASSWORD_TOKEN: 'Invalid forgot password token'
+            } catch (error) {
+              if (error instanceof JsonWebTokenError) {
+                throw new ErrorWithStatus({
+                  message: capitalize((error as JsonWebTokenError).message),
+                  status: HTTP_STATUS.UNAUTHORIZED //401
+                })
+              }
+              throw error
+            }
+            return true
+          }
+        }
+      }
+    },
+    ['body']
+  )
+)
+
+export const resetPasswordValidator = validate(
+  checkSchema(
+    {
+      password: passwordSchema,
+      confirm_password: confirmPasswordSchema
     },
     ['body']
   )
