@@ -4,13 +4,16 @@ import {
   emailVerifyController,
   forgotPasswordController,
   getMeController,
+  getProfileController,
   loginController,
   logoutController,
   registerController,
   resendEmailVerifyController,
   resetPasswordController,
+  updateMeController,
   verifyForgotPasswordTokenController
 } from '~/controllers/users.controllers'
+import { filterMiddleware } from '~/middlewares/common.middlewares'
 import {
   RefreshTokenValidator,
   accessTokenValidator,
@@ -19,8 +22,11 @@ import {
   loginValidator,
   registerValidator,
   resetPasswordValidator,
+  updateMeValidator,
+  verifiedUserValidator,
   verifyForgotPasswordTokenValidator
 } from '~/middlewares/users.middlewares'
+import { UpdateMeReqBody } from '~/models/requests/User.request'
 import RefreshToken from '~/models/schemas/RefreshToken.schema'
 import { wrapAsync } from '~/utils/handlers'
 const usersRouter = Router()
@@ -37,7 +43,7 @@ usersRouter.post('/register', registerValidator, wrapAsync(registerController))
   body: {refresh_token: string}
 
 */
-usersRouter.post('.logout', accessTokenValidator, RefreshTokenValidator, wrapAsync(logoutController))
+usersRouter.post('/logout', accessTokenValidator, RefreshTokenValidator, wrapAsync(logoutController))
 /*
 des: verify email
 khi ng dùng đăng kí , trong email của họ sẽ có 1 link 
@@ -46,7 +52,7 @@ thì vẻify email là cái route cho request đó
 path : users/verify-eamil
 body: {email_verify_token: string}
 */
-usersRouter.post('verify-email', emailVerifyValidator, wrapAsync(emailVerifyController))
+usersRouter.post('/verify-email', emailVerifyValidator, wrapAsync(emailVerifyController))
 
 /*
 des : resend email verify
@@ -106,6 +112,32 @@ body: {}
 */
 usersRouter.get('/me', accessTokenValidator, wrapAsync(getMeController))
 
+usersRouter.patch(
+  '/me',
+  accessTokenValidator,
+  verifiedUserValidator,
+  filterMiddleware<UpdateMeReqBody>([
+    'name',
+    'date_of_birth',
+    'bio',
+    'location',
+    'website',
+    'avatar',
+    'username',
+    'cover_photo'
+  ]),
+  updateMeValidator,
+  wrapAsync(updateMeController)
+)
+
+/*
+des: get profile của user khác bằng unsername
+path: '/:username'
+method: get
+không cần header vì, chưa đăng nhập cũng có thể xem
+*/
+usersRouter.get('/:username', wrapAsync(getProfileController))
+//chưa có controller getProfileController, nên bây giờ ta làm
 //hàm bình thường thi dùng
 
 export default usersRouter // mở pulic cho các lệnh

@@ -6,10 +6,12 @@ import userService from '~/services/users.services'
 import {
   EmailVerifyReqBody,
   ForgotPasswordReqBody,
+  GetProfileReqParams,
   LogoutReqBody,
   RegisterReqBody,
   ResetPasswordReqBody,
   TokenPayload,
+  UpdateMeReqBody,
   VerifyForgotPasswordReqBody
 } from '~/models/requests/User.request'
 import { ObjectId } from 'mongodb'
@@ -23,7 +25,10 @@ export const loginController = async (req: Request, res: Response) => {
   const user = req.user as User
   const user_id = user._id as ObjectId
   //dùng cái user_id đó tạo access và rếh _token
-  const result = await userService.login(user_id.toString())
+  const result = await userService.login({
+    user_id: user_id.toString(),
+    verify: user.verify
+  })
   return res.json({
     message: USERS_MESSAGES.LOHIN_SUCCESS,
     result
@@ -111,9 +116,12 @@ export const forgotPasswordController = async (
   res: Response
 ) => {
   //vì đã qua forgotPasswordValidator nên req sẽ có user
-  const { _id } = req.user as User
+  const { _id, verify } = req.user as User
   //tiến hành tạo forgot Password vvaf lưu user đó kèm gửi mail cho user đó
-  const result = await userService.forgotPassword((_id as ObjectId).toString())
+  const result = await userService.forgotPassword({
+    user_id: (_id as ObjectId).toString(),
+    verify
+  })
   return res.json(result)
 }
 
@@ -144,6 +152,35 @@ export const getMeController = async (req: Request, res: Response) => {
   const result = await userService.getMe(user_id)
   return res.json({
     message: USERS_MESSAGES.GET_ME_SUCCESS,
+    result
+  })
+}
+
+export const updateMeController = async (
+  req: Request<ParamsDictionary, any, UpdateMeReqBody>,
+  res: Response,
+  next: NextFunction
+) => {
+  const { user_id } = req.decoded_authorization as TokenPayload
+  //user_id để biết phải cập nhật ai
+  //lấy thông tin mới từ req.body
+  const body = req.body
+
+  //lấy các property mà client muốn cập nhật
+  //ta sẽ viết hàm updateMe trong user.services
+  //nhận vào user_id và body để cập nhật
+  const result = await userService.updateMe(user_id, body)
+  return res.json({
+    message: USERS_MESSAGES.UPDATE_ME_SUCCESS,
+    result
+  })
+}
+
+export const getProfileController = async (req: Request<GetProfileReqParams>, res: Response, next: NextFunction) => {
+  const { username } = req.params //lấy username từ query params
+  const result = await userService.getProfile(username)
+  return res.json({
+    message: USERS_MESSAGES.GET_PROFILE_SUCCESS,
     result
   })
 }
